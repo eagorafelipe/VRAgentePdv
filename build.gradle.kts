@@ -12,20 +12,22 @@ repositories {
 
 kotlin {
 
+    // Linux target
     linuxX64("linux") {
         binaries {
             executable {
                 entryPoint = "main"
-                baseName = "vragentepdv-linux"
+                baseName = "salt-installer-linux"
             }
         }
     }
 
+    // Windows target
     mingwX64("windows") {
         binaries {
             executable {
                 entryPoint = "main"
-                baseName = "vragentepdv-windows"
+                baseName = "salt-installer-windows"
             }
         }
     }
@@ -47,22 +49,25 @@ kotlin {
 
         val linuxMain by getting {
             dependencies {
+                // Linux specific dependencies
             }
         }
 
         val windowsMain by getting {
             dependencies {
+                // Windows specific dependencies
             }
         }
     }
 }
 
+// Task to build both platforms
 tasks.register("buildAll") {
-    dependsOn("linuxX64Binaries", "mingwX64Binaries")
-    description = "Gerando executáveis para Linux e Windows"
-    group = "build"
+    dependsOn("linuxBinaries", "windowsBinaries")
+    description = "Build executables for all platforms"
 }
 
+// Task to package releases
 tasks.register<Zip>("packageRelease") {
     dependsOn("buildAll")
     archiveFileName.set("salt-installer-${version}.zip")
