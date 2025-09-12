@@ -1,6 +1,5 @@
 package platform
 
-
 import InstallationConfig
 import core.FileUtils
 import core.Logger
@@ -25,9 +24,10 @@ actual class SystemManager {
             return true
         }
 
-        // Check for installation directory
-        return fileUtils.exists("C:\\salt") ||
-               fileUtils.exists("C:\\Program Files\\Salt Project\\Salt")
+        // Check for installation directory - updated paths
+        return fileUtils.exists("C:\\ProgramData\\SaltProject\\Salt") ||
+               fileUtils.exists("C:\\Program Files\\Salt Project\\Salt") ||
+               fileUtils.exists("C:\\salt")
     }
 
     actual fun getInstalledVersion(platform: Platform): String? {
@@ -38,7 +38,6 @@ actual class SystemManager {
         }
 
         return if (versionResult.isSuccess) {
-            // Parse version from output like "salt-minion 3006.4"
             val output = versionResult.stdout.trim()
             val parts = output.split(" ")
             if (parts.size >= 2) parts[1] else "unknown"
@@ -58,9 +57,8 @@ actual class SystemManager {
     }
 
     private suspend fun installMsi(packagePath: String, config: InstallationConfig) {
-        // Silent installation with parameters
         val installArgs = listOf(
-            "/S",  // Silent install
+            "/S",
             "/master=${config.masterIp}",
             "/minion-name=${config.minionId}",
             "/start-service=1"
@@ -72,20 +70,16 @@ actual class SystemManager {
             throw Exception("Failed to install Salt-Minion: ${installResult.stderr}")
         }
 
-        // Wait for installation to complete
         delay(10000)
 
-        // Verify installation
         if (!isInstalled(PlatformDetector().detect())) {
             throw Exception("Installation verification failed")
         }
     }
 
     actual fun createService(config: InstallationConfig) {
-        // Salt Windows installer usually creates the service automatically
         logger.info("Service should be created automatically by installer")
 
-        // Verify service exists
         val serviceCheck = runBlocking {
             processUtils.execute("sc", listOf("query", "salt-minion"))
         }
@@ -117,7 +111,6 @@ actual class SystemManager {
         runBlocking {
             val result = processUtils.executeAsRoot("sc", listOf("start", serviceName))
             if (!result.isSuccess) {
-                // Try with net start as fallback
                 val netResult = processUtils.executeAsRoot("net", listOf("start", serviceName))
                 if (!netResult.isSuccess) {
                     throw Exception("Failed to start service $serviceName")
@@ -137,7 +130,6 @@ actual class SystemManager {
 
     actual fun removeService(serviceName: String) {
         stopService(serviceName)
-
         runBlocking {
             processUtils.executeAsRoot("sc", listOf("delete", serviceName))
         }
@@ -165,10 +157,11 @@ actual class SystemManager {
     actual fun removeInstallation(platform: Platform) {
         logger.info("Removing Salt-Minion installation")
 
-        // Try to find uninstaller
+        // Updated uninstaller paths
         val uninstallerPaths = listOf(
-            "C:\\salt\\uninst.exe",
-            "C:\\Program Files\\Salt Project\\Salt\\uninst.exe"
+            "C:\\Program Files\\Salt Project\\Salt\\uninst.exe",
+            "C:\\ProgramData\\SaltProject\\Salt\\uninst.exe",
+            "C:\\salt\\uninst.exe"
         )
 
         val uninstaller = uninstallerPaths.find { fileUtils.exists(it) }
@@ -178,14 +171,13 @@ actual class SystemManager {
                 processUtils.executeAsRoot(uninstaller, listOf("/S"))
             }
         } else {
-            // Manual removal
             logger.warn("Uninstaller not found, performing manual removal")
 
-            // Remove directories
-            fileUtils.deleteDirectory("C:\\salt")
+            // Remove directories - updated paths
+            fileUtils.deleteDirectory("C:\\ProgramData\\SaltProject\\Salt")
             fileUtils.deleteDirectory("C:\\Program Files\\Salt Project\\Salt")
+            fileUtils.deleteDirectory("C:\\salt")
 
-            // Remove from Add/Remove Programs using PowerShell
             runBlocking {
                 val psCommand = """
                     Get-WmiObject -Class Win32_Product | Where-Object { ${'$'}_.Name -like "*Salt*" } | ForEach-Object { ${'$'}_.Uninstall() }
@@ -204,8 +196,13 @@ actual class SystemManager {
 
         fileUtils.createDirectory(backupDir)
 
-        // Backup configuration
-        val configDirs = listOf("C:\\salt\\conf", "C:\\Program Files\\Salt Project\\Salt\\conf")
+        // Updated config directories
+        val configDirs = listOf(
+            "C:\\ProgramData\\SaltProject\\Salt\\conf",
+            "C:\\Program Files\\Salt Project\\Salt\\conf",
+            "C:\\salt\\conf"
+        )
+
         for (configDir in configDirs) {
             if (fileUtils.exists(configDir)) {
                 fileUtils.copyFile(configDir, "$backupDir\\conf")
@@ -217,11 +214,34 @@ actual class SystemManager {
     }
 
     private fun findSaltExecutable(): String? {
+        // Updated executable paths
         val possiblePaths = listOf(
-            "C:\\salt\\salt-minion.exe",
-            "C:\\Program Files\\Salt Project\\Salt\\salt-minion.exe"
+            "C:\\Program Files\\Salt Project\\Salt\\salt-minion.exe",
+            "C:\\ProgramData\\SaltProject\\Salt\\salt-minion.exe",
+            "C:\\salt\\salt-minion.exe"
         )
 
         return possiblePaths.find { fileUtils.exists(it) }
+    }
+
+    // Função para configurar permissões na pasta ProgramData
+    fun configureProgramDataPermissions() {
+        runBlocking {
+            val icaclsCommand = listOf(
+                "icacls",
+                "C:\\ProgramData\\SaltProject\\Salt",
+                "/grant",
+                "Everyone:(OI)(CI)F",
+                "/T"
+            )
+
+            val result = processUtils.executeAsRoot("cmd", listOf("/c") + icaclsCommand.joinToString(" "))
+
+            if (!result.isSuccess) {
+                logger.warn("Failed to set permissions on ProgramData directory: ${result.stderr}")
+            } else {
+                logger.info("Successfully configured permissions for ProgramData directory")
+            }
+        }
     }
 }

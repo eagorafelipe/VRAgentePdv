@@ -15,16 +15,29 @@ actual class ProcessUtils {
         captureOutput: Boolean
     ): ProcessResult = withContext(Dispatchers.Default) {
 
-        // Simplified approach using system() call for better compatibility
+        // Corrigir a construção do comando para Windows
         val fullCommand = buildString {
-            append("\"$command\"")
+            // Adicionar aspas apenas se o comando contém espaços
+            if (command.contains(" ")) {
+                append("\"$command\"")
+            } else {
+                append(command)
+            }
+
             if (args.isNotEmpty()) {
                 append(" ")
-                append(args.joinToString(" ") { "\"$it\"" })
+                // Adicionar aspas apenas em argumentos que contêm espaços
+                append(args.joinToString(" ") { arg ->
+                    if (arg.contains(" ") || arg.contains("\"")) {
+                        "\"${arg.replace("\"", "\\\"")}\""
+                    } else {
+                        arg
+                    }
+                })
             }
         }
 
-        // Change directory if specified
+        // Mudança de diretório corrigida para Windows
         val commandWithDir = if (workingDir != null) {
             "cd /d \"$workingDir\" && $fullCommand"
         } else {
@@ -42,25 +55,26 @@ actual class ProcessUtils {
         args: List<String>,
         workingDir: String?
     ): ProcessResult {
-        // Use PowerShell with elevated privileges
-        val psArgs = buildList {
-            add("-Command")
-            add("Start-Process")
-            add("-FilePath")
-            add("'$command'")
-            if (args.isNotEmpty()) {
-                add("-ArgumentList")
-                add("'${args.joinToString("','")}'")
+        // Corrigir PowerShell com privilégios elevados
+        val escapedCommand = command.replace("'", "''")
+        val escapedArgs = args.map { it.replace("'", "''") }
+
+        val psCommand = buildString {
+            append("Start-Process -FilePath '$escapedCommand'")
+
+            if (escapedArgs.isNotEmpty()) {
+                append(" -ArgumentList ")
+                append(escapedArgs.joinToString(",") { "'$it'" })
             }
-            add("-Verb")
-            add("RunAs")
-            add("-Wait")
+
+            append(" -Verb RunAs -Wait")
+
             if (workingDir != null) {
-                add("-WorkingDirectory")
-                add("'$workingDir'")
+                val escapedWorkingDir = workingDir.replace("'", "''")
+                append(" -WorkingDirectory '$escapedWorkingDir'")
             }
         }
 
-        return execute("powershell", psArgs, null)
+        return execute("powershell", listOf("-Command", psCommand), null)
     }
 }

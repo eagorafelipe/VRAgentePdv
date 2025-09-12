@@ -90,12 +90,12 @@ class SaltMinionVersionManager {
         // This would normally query the Salt repository
         // For now, we'll construct URLs based on known patterns
 
-        val baseUrl = "https://repo.saltproject.io"
+        val baseUrl = "https://packages.broadcom.com/artifactory/saltproject-generic"
         val filename = getFilename(version, platform)
 
         return when (platform.name.lowercase()) {
             "windows" -> SaltDownload(
-                url = "$baseUrl/windows/Salt-Minion-$version-Py3-AMD64-Setup.exe",
+                url = "$baseUrl/windows/$version/$filename",
                 checksum = "", // Would be fetched from repo
                 size = 50_000_000
             )

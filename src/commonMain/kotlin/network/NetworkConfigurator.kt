@@ -1,7 +1,7 @@
 package network
 
-import core.*
-import kotlinx.coroutines.*
+import core.Logger
+import core.ProcessUtils
 
 class NetworkConfigurator {
     private val logger = Logger

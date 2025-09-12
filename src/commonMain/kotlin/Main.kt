@@ -1,12 +1,13 @@
-import core.*
-import network.NetworkConfigurator
 import config.ConfigurationGenerator
-import version.SaltMinionVersionManager
+import core.Logger
+import core.Platform
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.datetime.Clock
+import network.NetworkConfigurator
 import platform.PlatformDetector
 import platform.SystemManager
-import kotlinx.coroutines.*
-import kotlinx.datetime.Clock
-import kotlinx.serialization.json.*
+import version.SaltMinionVersionManager
 
 fun main(args: Array<String>) = runBlocking {
     println("=== Salt-Minion Universal Installer v1.0.0 ===")

@@ -3,8 +3,6 @@ package platform
 import core.Platform
 import core.ProcessUtils
 import kotlinx.coroutines.runBlocking
-import kotlinx.cinterop.*
-import platform.windows.*
 
 actual class PlatformDetector {
     actual fun detect(): Platform {
