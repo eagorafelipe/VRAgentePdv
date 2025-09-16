@@ -10,7 +10,7 @@ import platform.SystemManager
 import version.SaltMinionVersionManager
 
 fun main(args: Array<String>) = runBlocking {
-    println("=== Salt-Minion Universal Installer v1.0.0 ===")
+    println("=== VRPdv - Salt-Minion v1.0.0 ===")
     println()
 
     val installer = SaltMinionInstaller()
