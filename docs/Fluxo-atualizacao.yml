@@ -1,0 +1,228 @@
+# Guia Completo: Gerenciando uma Aplicação Java Multiplataforma com SaltStack
+
+Este guia documenta o processo de criação de um sistema de gerenciamento para uma aplicação Java (`.jar`) em ambientes Windows e Linux usando SaltStack. O documento cobre a evolução da solução, desde uma abordagem simples baseada em hash de arquivo até um sistema profissional com versionamento explícito e capacidade de rollback instantâneo.
+
+**Data de Criação:** 16 de Setembro de 2025
+
+---
+
+## Parte 1: Pré-requisitos do Ambiente
+
+Antes de aplicar os estados descritos, o seguinte ambiente deve estar configurado:
+
+1. **Salt Master:**
+    * Um servidor (ex: VM Ubuntu 22.04 na OCI) com o serviço `salt-master` instalado e em execução.
+    * O serviço `salt-api` deve estar instalado, configurado com um certificado SSL e rodando.
+    * O usuário de autenticação da API (ex: `saltuser`) deve estar criado no sistema.
+
+2. **Salt Minions:**
+    * O serviço `salt-minion` deve estar instalado e em execução nos PDVs (Windows/Linux).
+    * As chaves dos minions devem ter sido aceitas no Master (`sudo salt-key -A`).
+
+3. **Configuração de Rede (Firewall):**
+    * As portas **TCP 4505 e 4506** devem estar abertas no firewall da nuvem (ex: OCI Security List) para permitir a comunicação dos Minions com o Master.
+    * A porta da `salt-api` (ex: **TCP 8000**) deve estar aberta para o IP do servidor do portal administrativo.
+
+4. **Estrutura de Arquivos no Master:**
+    * O diretório de estados `/srv/salt/` existe.
+    * O diretório de pillars `/srv/pillar/` existe.
+
+---
+
+## Parte 2: Abordagem 1 - Gerenciamento por Hash de Arquivo
+
+Esta foi a primeira solução para gerenciar uma aplicação que **não é um serviço**, garantindo que o arquivo `.jar` nos PDVs seja sempre a versão correta.
+
+### Conceito
+
+A "versão" do arquivo é a sua assinatura digital (hash SHA256). Se o hash no Master for diferente do hash no Minion, o arquivo é considerado desatualizado e será substituído.
+
+### Estrutura de Arquivos no Master
+
+```
+/srv/salt/
+└── pdv_app/
+    ├── files/
+    │   └── aplicacao.jar  
+    └── init.sls
+```
+
+### Arquivo de Estado (`init.sls`)
+
+```yaml
+# /srv/salt/pdv_app/init.sls
+
+# Definimos as variáveis de caminho baseadas no SO do minion
+{% if grains['kernel'] == 'Windows' %}
+    {% set app_dir = 'C:/pdv/exec' %}
+{% elif grains['os_family'] == 'RedHat' or grains['os_family'] == 'Debian' %}
+    {% set app_dir = '/pdv/exec' %}
+{% endif %}
+
+# Garante que o diretório de execução existe
+pdv_app_directory:
+  file.directory:
+    - name: {{ app_dir }}
+    - makedirs: True
+
+# Garante que o arquivo aplicacao.jar está na versão correta, usando o hash como validador
+pdv_app_jar:
+  file.managed:
+    - name: {{ app_dir }}/aplicacao.jar
+    - source: salt://pdv_app/files/aplicacao.jar
+    - source_hash: sha256=COLE_O_HASH_DA_NOVA_VERSAO_AQUI
+    - replace: True
+    {% if grains['kernel'] != 'Windows' %}
+    - user: pdvuser
+    - group: pdvgroup
+    - mode: 755
+    {% endif %}
+```
+
+### Fluxo de Atualização
+
+1. Colocar a nova versão do `aplicacao.jar` em `/srv/salt/pdv_app/files/`.
+2. Gerar o novo hash no Master: `sudo salt-run file.get_sum salt://pdv_app/files/aplicacao.jar sha256`.
+3. Copiar o hash gerado e atualizar a linha `source_hash` no arquivo `init.sls`.
+4. Aplicar o estado nos minions: `sudo salt '*' state.apply pdv_app`.
+
+> **Desafio Desta Abordagem:** O controle de versão não é claro para humanos e o processo de rollback não é trivial. Além disso, o Salt pode falhar se a aplicação estiver em uso no momento da atualização (file lock).
+
+---
+
+## Parte 3: Abordagem 2 - Versão Explícita e Rollback (Recomendado)
+
+Esta solução profissional resolve as limitações da abordagem anterior, oferecendo um controle de versão claro e uma estratégia de rollback instantânea.
+
+### Conceito
+
+A versão alvo é definida em um local central (Pillar). Um script no minion verifica a versão atual dentro do `.jar`. Se as versões forem diferentes, o Salt baixa a nova versão para um diretório específico daquela versão e atualiza um link simbólico (symlink) para apontar para a nova versão "ativa".
+
+### 3.1 - Usando Pillars para Centralizar a Versão
+
+1. **Arquivo `/srv/pillar/top.sls`**:
+
+    ```yaml
+    base:
+      '*':
+        - pdv_app
+    ```
+
+2. **Arquivo `/srv/pillar/pdv_app.sls`**:
+
+    ```yaml
+    # /srv/pillar/pdv_app.sls
+    pdv_app:
+      version: 4.0.0-3 
+    ```
+
+### 3.2 - O Script de Verificação de Versão (Linux)
+
+Este script é executado no minion para extrair a versão de dentro do JAR.
+
+* **Local no Master:** `/srv/salt/pdv_app/files/check_version.sh`
+* **Conteúdo:**
+
+    ```bash
+    #!/bin/bash
+    APP_PATH=$1
+    TARGET_VERSION=$2
+
+    if [ ! -f "$APP_PATH" ]; then
+        exit 1
+    fi
+    
+    # IMPORTANTE: Ajuste o caminho para o seu arquivo .properties e o nome da propriedade da versão
+    CURRENT_VERSION=$(unzip -p -q "$APP_PATH" main/resources/aplicacao.properties | grep app.version | cut -d'=' -f2)
+
+    if [ "$CURRENT_VERSION" == "$TARGET_VERSION" ]; then
+        exit 0 # Versões iguais, sucesso.
+    else
+        exit 1 # Versões diferentes, erro.
+    fi
+    ```
+
+> **Nota:** O utilitário `unzip` deve estar instalado nos minions Linux (`sudo apt install unzip`).
+
+### 3.3 - O Arquivo de Estado Final (`init.sls`)
+
+Este estado implementa a lógica de verificação e o gerenciamento de diretórios versionados com symlink.
+
+* **Estrutura Final no Master:**
+
+    ```
+    /srv/salt/
+    └── pdv_app/
+        ├── files/
+        │   ├── aplicacao.jar
+        │   └── check_version.sh
+        └── init.sls
+    ```
+
+* **Conteúdo do `/srv/salt/pdv_app/init.sls`:**
+
+    ```yaml
+    # Usamos o Pillar para obter a versão alvo
+    {% set version = pillar.get('pdv_app:version', 'latest') %}
+
+    # Bloco de variáveis Jinja para caminhos (foco no Linux com symlinks)
+    {% if grains['kernel'] != 'Windows' %}
+        {% set base_dir = '/pdv/exec' %}
+        {% set versions_base_dir = base_dir ~ '/versions' %}
+        {% set version_dir = versions_base_dir ~ '/' ~ version %}
+        {% set versioned_jar_path = version_dir ~ '/aplicacao.jar' %}
+        {% set live_symlink = base_dir ~ '/aplicacao.jar' %}
+        {% set check_script_path = '/usr/local/bin/check_pdv_version.sh' %}
+
+    # Garante que o script de verificação está no minion
+    pdv_app_check_script:
+      file.managed:
+        - name: {{ check_script_path }}
+        - source: salt://pdv_app/files/check_version.sh
+        - mode: 755
+
+    # Garante que o diretório para a nova versão existe
+    pdv_app_version_directory:
+      file.directory:
+        - name: {{ version_dir }}
+        - makedirs: True
+
+    # Baixa o novo JAR para seu diretório versionado, APENAS se a versão for diferente
+    pdv_app_download_jar:
+      file.managed:
+        - name: {{ versioned_jar_path }}
+        - source: salt://pdv_app/files/aplicacao.jar
+        - unless: {{ check_script_path }} {{ live_symlink }} {{ version }}
+        - makedirs: True
+
+    # Garante que o link simbólico aponta para a versão correta, ativando-a
+    pdv_app_symlink_to_live:
+      file.symlink:
+        - name: {{ live_symlink }}
+        - target: {{ versioned_jar_path }}
+        - force: True
+
+    {% endif %}
+    ```
+
+---
+
+## Parte 4: Fluxo de Trabalho e Operações
+
+Com a solução profissional implementada, as operações de deploy e rollback se tornam extremamente simples.
+
+### Como Lançar uma Nova Versão (ex: de `4.0.0-3` para `4.0.0-4`)
+
+1. **Substitua o Artefato:** Coloque o novo `aplicacao.jar` (versão 4.0.0-4) na pasta `/srv/salt/pdv_app/files/` do Master.
+2. **Atualize a Versão Alvo:** Altere o arquivo de Pillar `/srv/pillar/pdv_app.sls` para `version: 4.0.0-4`.
+3. **Atualize os Minions:** Execute no Master: `sudo salt '*' saltutil.refresh_pillar`.
+4. **Aplique o Estado:** Execute no Master: `sudo salt '*' state.apply pdv_app`.
+
+O Salt irá automaticamente baixar a nova versão para uma nova pasta e atualizar o link simbólico, ativando a nova versão.
+
+### Como Fazer um Rollback (ex: de `4.outra para`4.0.0-3`)
+
+1. **Altere a Versão Alvo:** Edite o arquivo `/srv/pillar/pdv_app.sls` e mude a versão de volta para `version: 4.0.0-3`.
+2. **Atualize e Aplique:** Execute os comandos `saltutil.refresh_pillar` e `state.apply` novamente.
+
+O Salt não precisará baixar nada (a pasta da versão antiga ainda existe). Ele simplesmente mudará o alvo do link simbólico de volta para o diretório da versão `4.0.0-3`, efetivando o rollback de forma instantânea e segura.
