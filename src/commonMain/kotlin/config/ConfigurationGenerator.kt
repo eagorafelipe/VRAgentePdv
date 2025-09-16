@@ -158,79 +158,47 @@ master_port: ${config.port}
 # Minion identity
 id: ${config.minionId}
 
-# Authentication
-auto_accept_grains: False
-autosign_timeout: 120
+# File roots para acesso aos diretórios PDV/VR
+file_roots:
+  base:
+    - /srv/salt
+    - $pdvPath
+    - $vrPath
+
+# Configuração de acesso a arquivos
+file_client: remote
+fileserver_backend:
+  - roots
+
+# Habilitar eventos de arquivo para monitoramento
+fileserver_events: True
+
+# Configurações de segurança com acesso aos diretórios
+open_mode: False
+auto_accept: True
 
 # Logging
 log_level: warning
 log_file: $logFile
 key_logfile: $keyLogFile
 
-# File server settings
-file_client: remote
-fileserver_backend:
-  - roots
-
 # Cache settings
 cachedir: $cacheDir
 
-# Process management
-multiprocessing: True
-process_count_max: -1
-
-# Network settings
-tcp_keepalive: True
-tcp_keepalive_idle: 300
-tcp_keepalive_cnt: 3
-tcp_keepalive_intvl: 30
-
-# Security settings
-verify_master_pubkey_sign: False
-master_sign_pubkey: False
-
-# Module management
-enable_legacy_startup_events: False
-startup_states: ''
-
-# Pillar settings
-pillar_cache: True
-pillar_cache_ttl: 3600
-
-# Mine settings
-mine_enabled: True
-mine_return_job: False
-mine_interval: 60
-
-# Backup configuration
-backup_mode: minion
-
-# File and directory settings
-pki_dir: $pkiDir
-sock_dir: $sockDir
-
-# Extension modules
-extension_modules: $extModsDir
-
-# Custom grains (can be overridden)
+# Configurações específicas para PDV/VR
 grains:
   roles:
     - minion
     - pdv-monitor
+    - vr-monitor
   environment: production
   pdv_path: $pdvPath
   vr_path: $vrPath
+  monitored_files:
+    - $vrPdvJarFile
+    - $vrPropertiesFile
 
-# Enable/disable modules
-disable_modules:
-  - test
-
-# State settings
-state_verbose: False
-state_output: changes
-state_output_diff: False
-
-# Beacon configuration for file monitoring
+# Beacon configuration para monitoramento de arquivos
 beacons:
   inotify:
     - files:
@@ -257,40 +225,49 @@ beacons:
     - interval: 10
     - disable_during_state_run: True
 
-# Scheduler for periodic checks
+# Scheduler para verificações periódicas
 schedule:
   pdv_health_check:
     function: cmd.run
     args:
-      - 'echo "PDV Health Check: $(date)"'
+      - 'echo "PDV Health Check: ${'$'}(date)"'
     minutes: 5
-    
+
   vr_properties_sync:
     function: state.apply
     args:
       - vr.properties.sync
     minutes: 30
-    
+
   vrpdv_jar_check:
     function: file.stats
     args:
       - $vrPdvJarFile
     minutes: 15
 
-# Reactor configuration (will be processed by master)
-reactor:
-  - 'salt/beacon/*/inotify/$vrPropertiesFile':
-    - /srv/reactor/vr_properties_changed.sls
-  - 'salt/beacon/*/inotify/$vrPdvJarFile':
-    - /srv/reactor/vrpdv_jar_changed.sls
+# Configuração de backup
+backup_mode: minion
 
-# File monitoring intervals
-file_recv_max_size: 1048576000  # 1GB max file size
+# PKI e outros diretórios
+pki_dir: $pkiDir
+sock_dir: $sockDir
+extension_modules: $extModsDir
+
+# Configurações de rede
+tcp_keepalive: True
+tcp_keepalive_idle: 300
+
+# Configurações de pillar
+pillar_cache: True
+pillar_cache_ttl: 3600
+
+# Mine settings para descoberta
+mine_enabled: True
+mine_interval: 60
+
+# Tamanho máximo de arquivo para transferência
+file_recv_max_size: 1048576000  # 1GB para suportar JARs grandes
 file_buffer_size: 262144
-
-# Event publishing
-event_publisher_pub_hwm: 20000
-event_publisher_push_hwm: 20000
     """.trimIndent()
     }
 
