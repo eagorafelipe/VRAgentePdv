@@ -96,13 +96,32 @@ class ConfigurationGenerator {
             val defaultProps = """
 # VR Configuration Properties
 # Managed by Salt-Minion Universal Installer
-system.numeroloja=1
 
-concentrador.ip=192.168.0.1
-concentrador.porta=2123
+# Database configuration
+database.url=jdbc:mysql://localhost:3306/vrdb
+database.username=vr_user
+database.password=change_me
 
-naofiscal.numerocfe=101
+# Server configuration  
+server.port=8080
+server.host=0.0.0.0
 
+# Logging configuration
+logging.level=INFO
+logging.file.path=${if (isWindows) "C:\\vr\\logs" else "/vr/logs"}
+
+# Application settings
+app.name=VR Application
+app.version=1.0.0
+app.environment=production
+
+# Cache settings
+cache.enabled=true
+cache.ttl=3600
+
+# Security settings
+security.enabled=true
+security.token.expiry=86400
         """.trimIndent()
 
             fileUtils.writeTextFile(vrPropsPath, defaultProps)
@@ -111,7 +130,22 @@ naofiscal.numerocfe=101
     }
 
     private fun createMinionConfigContent(config: InstallationConfig): String {
-        val vrPropertiesFile = if (isWindows) "C:/vr/vr.properties" else "/vr/vr.properties"
+        val platform = PlatformDetector().detect()
+        val isWindows = platform.name.lowercase() == "windows"
+
+        val logFile = if (isWindows) "${getLogDirectory(platform)}\\minion" else "/var/log/salt/minion"
+        val keyLogFile = if (isWindows) "${getLogDirectory(platform)}\\key" else "/var/log/salt/key"
+        val cacheDir = getCacheDirectory(platform)
+        val pkiDir = getPkiDirectory(platform)
+        val sockDir = getRunDirectory(platform)
+        val extModsDir = if (isWindows) "$cacheDir\\extmods" else "/var/cache/salt/minion/extmods"
+
+        // Definir caminhos baseados na plataforma
+        val pdvPath = if (isWindows) "C:\\pdv" else "/pdv"
+        val vrPath = if (isWindows) "C:\\vr" else "/vr"
+        val pdvExecPath = if (isWindows) "C:\\pdv\\exec" else "/pdv/exec"
+        val vrPropertiesFile = if (isWindows) "C:\\vr\\vr.properties" else "/vr/vr.properties"
+        val vrPdvJarFile = if (isWindows) "C:\\pdv\\exec\\VRPdv.jar" else "/pdv/exec/VRPdv.jar"
 
         return """
 # ... configurações anteriores ...
@@ -144,7 +178,6 @@ schedule:
 # ... resto da configuração ...
 """.trimIndent()
     }
-
 
     private fun generateLoggingConfig(config: InstallationConfig, platform: Platform) {
         val logDir = getLogDirectory(platform)
